@@ -12,7 +12,16 @@ In this chapter we will look at API protocol internals - for new API client libr
 
 API request is a POST HTTP request with `application/json` Content-Type and JSON payload in request body.
 
-API protected by `api_key` secret key set in Centrifugo configuration. This API key must be set in request `Authorization` header in this way:
+API protected by `api_key` set in Centrifugo configuration. I.e. `api_key` must be added to config, like:
+
+```javascript
+{
+    ...
+    "api_key": "<YOUR API KEY>"
+}
+```
+
+This API key must be set in request `Authorization` header in this way:
 
 ```
 Authorization: apikey <KEY>
@@ -341,3 +350,7 @@ Date: Thu, 17 May 2018 22:07:58 GMT
     }
 }
 ```
+
+## Command pipelining
+
+It's possible to combine several commands into one request to Centrifugo. To do this use [JSON streaming](https://en.wikipedia.org/wiki/JSON_streaming) format. This can improve server throughput and reduce traffic travelling around.

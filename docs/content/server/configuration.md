@@ -1,6 +1,6 @@
 # Configuration
 
-Centrifugo expects JSON, TOML or YAML as format of configuration file. Thanks to brilliant Go library for application configuration - [viper](https://github.com/spf13/viper).
+Centrifugo expects JSON, TOML or YAML as configuration file format. Thanks to brilliant Go library for application configuration - [viper](https://github.com/spf13/viper).
 
 First let's look at all available command-line options:
 
@@ -41,18 +41,18 @@ Flags:
       --pid_file string            optional path to create PID file
   -p, --port string                port to bind HTTP server to (default "8000")
       --prometheus                 enable Prometheus metrics endpoint
-      --redis_db string            Redis database (Redis engine) (default "0")
+      --redis_db int               Redis database (Redis engine)
       --redis_host string          Redis host (Redis engine) (default "127.0.0.1")
       --redis_master_name string   name of Redis master Sentinel monitors (Redis engine)
       --redis_password string      Redis auth password (Redis engine)
       --redis_port string          Redis port (Redis engine) (default "6379")
       --redis_sentinels string     comma-separated list of Sentinel addresses (Redis engine)
+      --redis_tls                  enable Redis TLS connection
+      --redis_tls_skip_verify      disable Redis TLS host verification
       --redis_url string           Redis connection URL in format redis://:password@hostname:port/db (Redis engine)
       --tls                        enable TLS, requires an X509 certificate and a key file
       --tls_cert string            path to an X509 certificate file
       --tls_key string             path to an X509 certificate key
-
-Use " [command] --help" for more information about a command.
 ```
 
 ### version
@@ -71,11 +71,12 @@ This is a minimal Centrifugo configuration file:
 
 ```javascript
 {
-  "secret": "secret"
+  "secret": "<YOUR-SECRET-STRING-HERE>",
+  "api_key": "<YOUR-API-KEY-HERE>"
 }
 ```
 
-The only field that is required is **secret**. Secret used to check JWT signature (more about JWT later). Keep it strong and in secret as its name says.
+The only two fields required are **secret** and **api_key**. Secret used to check JWT signature (more about JWT in [authentication chapter](authentication.md)). API key used for Centrifugo API endpoint authorization, see more in [chapter about server HTTP API](api.md). Keep both values in secret and never reveal to clients.
 
 ### TOML file
 
@@ -88,7 +89,8 @@ centrifugo --config=config.toml
 Where `config.toml` contains:
 
 ```
-secret = "secret"
+secret = "<YOUR-SECRET-STRING-HERE>"
+api_key = "<YOUR-API-KEY-HERE>"
 log_level = "debug"
 ```
 
@@ -99,7 +101,8 @@ I.e. the same configuration as JSON file above with one extra option.
 And YAML config also supported. `config.yaml`:
 
 ```
-secret: secret
+secret: "<YOUR-SECRET-STRING-HERE>"
+api_key: "<YOUR-API-KEY-HERE>"
 log_level: debug
 ```
 
@@ -123,7 +126,7 @@ Another command is `genconfig`:
 centrifugo genconfig -c config.json
 ```
 
-It will generate the minimal required configuration file automatically.
+It will automatically generate the minimal required configuration file.
 
 ### Important options
 
@@ -160,6 +163,7 @@ Let's look how to set some of these options in config:
 ```javascript
 {
     "secret": "my-secret-key",
+    "api_key": "secret-api-key",
     "anonymous": true,
     "publish": true,
     "subscribe_to_publish": true,
@@ -175,7 +179,7 @@ And the last channel specific option is `namespaces`. `namespaces` are optional 
 
 Namespace has a name and the same channel options (with same defaults) as described above.
 
-* `name` - unique namespace name (name must must consist of letters, numbers, underscores or hyphens and be more than 2 symbols length i.e. satisfy regexp `^[-a-zA-Z0-9_]{2,}$`).
+* `name` - unique namespace name (name must consist of letters, numbers, underscores or hyphens and be more than 2 symbols length i.e. satisfy regexp `^[-a-zA-Z0-9_]{2,}$`).
 
 If you want to use namespace options for channel - you must include namespace name into
 channel name with `:` as separator:
@@ -191,6 +195,7 @@ All things together here is an example of `config.json` which includes registere
 ```javascript
 {
     "secret": "very-long-secret-key",
+    "api_key": "secret-api-key",
     "anonymous": true,
     "publish": true,
     "presence": true,
@@ -225,8 +230,7 @@ There is no inheritance in channel options and namespaces – so if for example 
 
 ### Advanced configuration
 
-Centrifugo has some options for which default values make sense for most applications. In many case you
-don't need (and you really should not) change them. This chapter is about such options.
+Centrifugo has some options for which default values make sense for most applications. In many case you don't need (and you really should not) change them. This chapter is about such options.
 
 #### client_channel_limit
 
@@ -258,6 +262,12 @@ Default: 10485760
 
 Maximum client message queue size in bytes to close slow reader connections. By default - 10mb.
 
+#### client_anonymous
+
+Default: false
+
+Enable mode when all clients can connect to Centrifugo without JWT connection token. In this case all connections will be treated as anonymous (i.e. with empty user ID) and only can subscribe to channels with `anonymous` option enabled.
+
 #### sockjs_heartbeat_delay
 
 Default: 25
@@ -268,7 +278,7 @@ Interval in seconds how often to send SockJS h-frames to client.
 
 Default: false
 
-Enable websocket compression, see special chapter in docs.
+Enable websocket compression, see chapter about websocket transport for more details.
 
 #### gomaxprocs
 
@@ -282,16 +292,16 @@ After you started Centrifugo you have several endpoints available. As soon as yo
 
 #### Default endpoints.
 
-First is SockJS endpoint - it's needed to serve client connections that use SockJS library:
-
-```
-http://localhost:8000/connection/sockjs
-```
-
-Next is raw Websocket endpoint to serve client connections that use pure Websocket protocol:
+The main endpoint is raw Websocket endpoint to serve client connections that use pure Websocket protocol:
 
 ```
 ws://localhost:8000/connection/websocket
+```
+
+Then there is SockJS endpoint - it's needed to serve client connections that use SockJS library:
+
+```
+http://localhost:8000/connection/sockjs
 ```
 
 And finally you have API endpoint to `publish` messages to channels (and execute other available API commands):
@@ -348,47 +358,49 @@ http://localhost:8000/debug/pprof/
 
 – will show you useful info about internal state of Centrifugo instance. This info is especially helpful when troubleshooting. See [wiki page](https://github.com/centrifugal/centrifugo/wiki/Investigating-performance-issues) for more info.
 
-#### Custom admin and API ports
+#### Healthcheck endpoint
 
-We strongly recommend to not expose admin, debug and API endpoints to Internet. In case of admin endpoint this step provides extra protection to `/`, `/admin/auth`, `/admin/api` endpoints, debug endpoints. Protecting API endpoint will allow you to use `api_insecure` mode to omit passing API key in each request.
+New in v2.1.0
 
-So it's a good practice to protect admin and API endpoints with firewall. For example you can do this in `location` section of Nginx configuration.
+Use `health` boolean option (by default `false`) to enable healthcheck endpoint which will be available on path `/health`. Also available over command-line flag:
 
-Though sometimes you don't have access to per-location configuration in your proxy/load balancer software. For example
-when using Amazon ELB. In this case you can change ports on which your admin and API endpoints work.
+```bash
+./centrifugo -c config.json --health
+```
 
-To run admin endpoints on custom port use `admin_port` option:
+#### Custom internal ports
+
+We strongly recommend to not expose API, admin, debug and prometheus endpoints to Internet. The following Centrifugo endpoints are considered internal:
+
+* API endpoint (`/api`) - for HTTP API requests
+* Admin web interface endpoints (`/`, `/admin/auth`, `/admin/api`) - used by web interface
+* Prometheus endpoint (`/metrics`) - used for exposing server metrics in Prometheus format 
+* Healthcheck endpoint (`/health`) - used to do healthchecks
+* Debug endpoints (`/debug/pprof`) - used to inspect internal server state
+
+It's a good practice to protect those endpoints with firewall. For example you can do this in `location` section of Nginx configuration.
+
+Though sometimes you don't have access to per-location configuration in your proxy/load balancer software. For example when using Amazon ELB. In this case you can change ports on which your internal endpoints work.
+
+To run internal endpoints on custom port use `internal_port` option:
 
 ```
 {
     ...
-    "admin_port": 10000
+    "internal_port": 9000
 }
 ```
 
 So admin web interface will work on address:
  
 ```
-ws://localhost:10000
+http://localhost:9000
 ```
 
-Also debug page will be available on new custom admin port too:
+Also debug page will be available on new custom port too:
 
 ```
-http://localhost:10000/debug/pprof/
+http://localhost:9000/debug/pprof/
 ```
 
-To run API server on it's own port use `api_port` option:
-
-```
-{
-    ...
-    "api_port": 10001
-}
-```
-
-Now you should send API requests to:
-
-```
-http://localhost:10001/api
-```
+The same for API and prometheus endpoint.

@@ -45,6 +45,7 @@ extra_css:
 
 pages: 
   - Getting Started: 'index.md'
+  - Integration Guide: 'guide.md'
   - Server:
     - 'Overview': 'server/index.md'
     - 'Installation': 'server/install.md'
@@ -76,5 +77,6 @@ pages:
     - 'Redis HA': 'deploy/redis.md'
     - 'OS tuning': 'deploy/tuning.md'
   - Misc:
+    - 'Insecure modes': 'misc/insecure_modes.md'
     - 'Migrate from Centrifugo v1': 'misc/migrate.md'
   - FAQ: 'faq.md'

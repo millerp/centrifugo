@@ -24,7 +24,8 @@ import (
 
 	"github.com/centrifugal/centrifugo/internal/admin"
 	"github.com/centrifugal/centrifugo/internal/api"
-	"github.com/centrifugal/centrifugo/internal/graphite"
+	"github.com/centrifugal/centrifugo/internal/health"
+	"github.com/centrifugal/centrifugo/internal/metrics/graphite"
 	"github.com/centrifugal/centrifugo/internal/middleware"
 	"github.com/centrifugal/centrifugo/internal/webui"
 
@@ -61,8 +62,9 @@ func main() {
 			bindEnvs := []string{
 				"engine", "debug", "secret", "publish", "subscribe_to_publish", "anonymous",
 				"join_leave", "presence", "history_recover", "history_size", "history_lifetime",
-				"client_insecure", "api_insecure", "admin", "admin_password", "admin_secret",
-				"admin_insecure", "redis_host", "redis_port", "redis_url",
+				"client_insecure", "api_key", "api_insecure", "admin", "admin_password", "admin_secret",
+				"admin_insecure", "redis_host", "redis_port", "redis_url", "redis_tls", "redis_tls_skip_verify",
+				"port", "internal_port", "tls", "tls_cert", "tls_key",
 			}
 			for _, env := range bindEnvs {
 				viper.BindEnv(env)
@@ -71,9 +73,9 @@ func main() {
 			bindPFlags := []string{
 				"engine", "log_level", "log_file", "pid_file", "debug", "name", "admin",
 				"client_insecure", "admin_insecure", "api_insecure", "port",
-				"address", "tls", "tls_cert", "tls_key", "internal_port", "prometheus",
+				"address", "tls", "tls_cert", "tls_key", "internal_port", "prometheus", "health",
 				"redis_host", "redis_port", "redis_password", "redis_db", "redis_url",
-				"redis_master_name", "redis_sentinels", "grpc_api",
+				"redis_tls", "redis_tls_skip_verify", "redis_master_name", "redis_sentinels", "grpc_api",
 			}
 			for _, flag := range bindPFlags {
 				viper.BindPFlag(flag, cmd.Flags().Lookup(flag))
@@ -208,27 +210,18 @@ func main() {
 				log.Fatal().Msgf("error running HTTP server: %v", err)
 			}
 
+			var exporter *graphite.Exporter
 			if viper.GetBool("graphite") {
-				go func() {
-					bridge, err := graphite.NewBridge(&graphite.Config{
-						URL:             net.JoinHostPort(viper.GetString("graphite_host"), strconv.Itoa(viper.GetInt("graphite_port"))),
-						Gatherer:        prometheus.DefaultGatherer,
-						Prefix:          viper.GetString("graphite_prefix") + graphite.ReplaceInvalidRunes(c.Name) + ".",
-						Interval:        60 * time.Second,
-						CountersAsDelta: true,
-					})
-					if err != nil {
-						log.Fatal().Msgf("error building Graphite bridge: %v", err)
-					}
-					err = bridge.Push()
-					if err != nil {
-						log.Fatal().Msgf("error pushing initial metrics to Graphite: %v", err)
-					}
-					bridge.Run(context.Background())
-				}()
+				exporter = graphite.New(graphite.Config{
+					Address:  net.JoinHostPort(viper.GetString("graphite_host"), strconv.Itoa(viper.GetInt("graphite_port"))),
+					Gatherer: prometheus.DefaultGatherer,
+					Prefix:   strings.TrimSuffix(viper.GetString("graphite_prefix"), ".") + "." + graphite.PreparePathComponent(c.Name),
+					Interval: time.Duration(viper.GetInt("graphite_interval")) * time.Second,
+					Tags:     viper.GetBool("graphite_tags"),
+				})
 			}
 
-			handleSignals(node, servers, grpcAPIServer)
+			handleSignals(node, servers, grpcAPIServer, exporter)
 		},
 	}
 
@@ -242,6 +235,7 @@ func main() {
 	rootCmd.Flags().BoolP("debug", "", false, "enable debug endpoints")
 	rootCmd.Flags().BoolP("admin", "", false, "enable admin web interface")
 	rootCmd.Flags().BoolP("prometheus", "", false, "enable Prometheus metrics endpoint")
+	rootCmd.Flags().BoolP("health", "", false, "enable Health endpoint")
 
 	rootCmd.Flags().BoolP("client_insecure", "", false, "start in insecure client mode")
 	rootCmd.Flags().BoolP("api_insecure", "", false, "use insecure API mode")
@@ -262,6 +256,8 @@ func main() {
 	rootCmd.Flags().StringP("redis_password", "", "", "Redis auth password (Redis engine)")
 	rootCmd.Flags().IntP("redis_db", "", 0, "Redis database (Redis engine)")
 	rootCmd.Flags().StringP("redis_url", "", "", "Redis connection URL in format redis://:password@hostname:port/db (Redis engine)")
+	rootCmd.Flags().BoolP("redis_tls", "", false, "enable Redis TLS connection")
+	rootCmd.Flags().BoolP("redis_tls_skip_verify", "", false, "disable Redis TLS host verification")
 	rootCmd.Flags().StringP("redis_master_name", "", "", "name of Redis master Sentinel monitors (Redis engine)")
 	rootCmd.Flags().StringP("redis_sentinels", "", "", "comma-separated list of Sentinel addresses (Redis engine)")
 
@@ -313,71 +309,74 @@ func main() {
 }
 
 var configDefaults = map[string]interface{}{
-	"gomaxprocs":                      0,
-	"engine":                          "memory",
-	"name":                            "",
-	"secret":                          "",
-	"publish":                         false,
-	"subscribe_to_publish":            false,
-	"anonymous":                       false,
-	"presence":                        false,
-	"history_size":                    0,
-	"history_lifetime":                0,
-	"history_recover":                 false,
-	"namespaces":                      "",
-	"node_ping_interval":              3,
-	"client_ping_interval":            25,
-	"client_expired_close_delay":      25,
-	"client_expired_sub_close_delay":  25,
-	"client_stale_close_delay":        25,
-	"client_message_write_timeout":    0,
-	"client_channel_limit":            128,
-	"client_request_max_size":         65536,    // 64KB
-	"client_queue_max_size":           10485760, // 10MB
-	"client_presence_ping_interval":   25,
-	"client_presence_expire_interval": 60,
-	"client_user_connection_limit":    0,
-	"channel_max_length":              255,
-	"channel_private_prefix":          "$",
-	"channel_namespace_boundary":      ":",
-	"channel_user_boundary":           "#",
-	"channel_user_separator":          ",",
-	"debug":                           false,
-	"prometheus":                      false,
-	"admin":                           false,
-	"admin_password":                  "",
-	"admin_secret":                    "",
-	"admin_insecure":                  false,
-	"admin_web_path":                  "",
-	"sockjs_url":                      "https://cdn.jsdelivr.net/npm/sockjs-client@1.3/dist/sockjs.min.js",
-	"sockjs_heartbeat_delay":          25,
-	"websocket_compression":           false,
-	"websocket_compression_min_size":  0,
-	"websocket_compression_level":     1,
-	"websocket_read_buffer_size":      0,
-	"websocket_write_buffer_size":     0,
-	"tls_autocert":                    false,
-	"tls_autocert_host_whitelist":     "",
-	"tls_autocert_cache_dir":          "",
-	"tls_autocert_email":              "",
-	"tls_autocert_force_rsa":          false,
-	"tls_autocert_server_name":        "",
-	"tls_autocert_http":               false,
-	"tls_autocert_http_addr":          ":80",
-	"redis_prefix":                    "centrifugo",
-	"redis_connect_timeout":           1,
-	"redis_read_timeout":              10, // Must be greater than ping channel publish interval.
-	"redis_write_timeout":             1,
-	"redis_idle_timeout":              0,
-	"redis_pubsub_num_workers":        0,
-	"grpc_api":                        false,
-	"grpc_api_port":                   10000,
-	"shutdown_timeout":                30,
-	"shutdown_termination_delay":      1,
-	"graphite":                        false,
-	"graphite_host":                   "localhost",
-	"graphite_port":                   2003,
-	"graphite_prefix":                 "centrifugo.",
+	"gomaxprocs":                           0,
+	"engine":                               "memory",
+	"name":                                 "",
+	"secret":                               "",
+	"publish":                              false,
+	"subscribe_to_publish":                 false,
+	"anonymous":                            false,
+	"presence":                             false,
+	"history_size":                         0,
+	"history_lifetime":                     0,
+	"history_recover":                      false,
+	"namespaces":                           "",
+	"node_info_metrics_aggregate_interval": 60,
+	"client_ping_interval":                 25,
+	"client_expired_close_delay":           25,
+	"client_expired_sub_close_delay":       25,
+	"client_stale_close_delay":             25,
+	"client_message_write_timeout":         0,
+	"client_channel_limit":                 128,
+	"client_request_max_size":              65536,    // 64KB
+	"client_queue_max_size":                10485760, // 10MB
+	"client_presence_ping_interval":        25,
+	"client_presence_expire_interval":      60,
+	"client_user_connection_limit":         0,
+	"channel_max_length":                   255,
+	"channel_private_prefix":               "$",
+	"channel_namespace_boundary":           ":",
+	"channel_user_boundary":                "#",
+	"channel_user_separator":               ",",
+	"debug":                                false,
+	"prometheus":                           false,
+	"health":                               false,
+	"admin":                                false,
+	"admin_password":                       "",
+	"admin_secret":                         "",
+	"admin_insecure":                       false,
+	"admin_web_path":                       "",
+	"sockjs_url":                           "https://cdn.jsdelivr.net/npm/sockjs-client@1.3/dist/sockjs.min.js",
+	"sockjs_heartbeat_delay":               25,
+	"websocket_compression":                false,
+	"websocket_compression_min_size":       0,
+	"websocket_compression_level":          1,
+	"websocket_read_buffer_size":           0,
+	"websocket_write_buffer_size":          0,
+	"tls_autocert":                         false,
+	"tls_autocert_host_whitelist":          "",
+	"tls_autocert_cache_dir":               "",
+	"tls_autocert_email":                   "",
+	"tls_autocert_force_rsa":               false,
+	"tls_autocert_server_name":             "",
+	"tls_autocert_http":                    false,
+	"tls_autocert_http_addr":               ":80",
+	"redis_prefix":                         "centrifugo",
+	"redis_connect_timeout":                1,
+	"redis_read_timeout":                   5,
+	"redis_write_timeout":                  1,
+	"redis_idle_timeout":                   0,
+	"redis_pubsub_num_workers":             0,
+	"grpc_api":                             false,
+	"grpc_api_port":                        10000,
+	"shutdown_timeout":                     30,
+	"shutdown_termination_delay":           1,
+	"graphite":                             false,
+	"graphite_host":                        "localhost",
+	"graphite_port":                        2003,
+	"graphite_prefix":                      "centrifugo",
+	"graphite_interval":                    10,
+	"graphite_tags":                        false,
 }
 
 func writePidFile(pidFile string) error {
@@ -421,7 +420,7 @@ func setupLogging() *os.File {
 	return nil
 }
 
-func handleSignals(n *centrifuge.Node, httpServers []*http.Server, grpcAPIServer *grpc.Server) {
+func handleSignals(n *centrifuge.Node, httpServers []*http.Server, grpcAPIServer *grpc.Server, exporter *graphite.Exporter) {
 	sigc := make(chan os.Signal, 1)
 	signal.Notify(sigc, syscall.SIGHUP, syscall.SIGINT, os.Interrupt, syscall.SIGTERM)
 	for {
@@ -458,6 +457,10 @@ func handleSignals(n *centrifuge.Node, httpServers []*http.Server, grpcAPIServer
 				}
 				os.Exit(1)
 			})
+
+			if exporter != nil {
+				exporter.Close()
+			}
 
 			var wg sync.WaitGroup
 
@@ -569,6 +572,7 @@ func runHTTPServers(n *centrifuge.Node) ([]*http.Server, error) {
 
 	admin := viper.GetBool("admin")
 	prometheus := viper.GetBool("prometheus")
+	health := viper.GetBool("health")
 
 	httpAddress := viper.GetString("address")
 	httpPort := viper.GetString("port")
@@ -599,6 +603,9 @@ func runHTTPServers(n *centrifuge.Node) ([]*http.Server, error) {
 	}
 	if debug {
 		portFlags |= HandlerDebug
+	}
+	if health {
+		portFlags |= HandlerHealth
 	}
 	portToHandlerFlags[httpInternalPort] = portFlags
 
@@ -663,18 +670,21 @@ func pathExists(path string) (bool, error) {
 var jsonConfigTemplate = `{
   "secret": "{{.Secret}}",
   "admin_password": "{{.AdminPassword}}",
-  "admin_secret": "{{.AdminSecret}}"
+  "admin_secret": "{{.AdminSecret}}",
+  "api_key": "{{.APIKey}}"
 }
 `
 
 var tomlConfigTemplate = `secret = {{.Secret}}
 admin_password = {{.AdminPassword}}
 admin_secret = {{.AdminSecret}}
+api_key = {{.APIKey}}
 `
 
 var yamlConfigTemplate = `secret: {{.Secret}}
 admin_password: {{.AdminPassword}}
 admin_secret: {{.AdminSecret}}
+api_key: {{.APIKey}}
 `
 
 // generateConfig generates configuration file at provided path.
@@ -717,7 +727,9 @@ func generateConfig(f string) error {
 		Secret        string
 		AdminPassword string
 		AdminSecret   string
+		APIKey        string
 	}{
+		uuid.NewV4().String(),
 		uuid.NewV4().String(),
 		uuid.NewV4().String(),
 		uuid.NewV4().String(),
@@ -799,6 +811,8 @@ func nodeConfig() *centrifuge.Config {
 	cfg.ClientQueueMaxSize = v.GetInt("client_queue_max_size")
 	cfg.ClientChannelLimit = v.GetInt("client_channel_limit")
 	cfg.ClientUserConnectionLimit = v.GetInt("client_user_connection_limit")
+
+	cfg.NodeInfoMetricsAggregateInterval = time.Duration(v.GetInt("node_info_metrics_aggregate_interval")) * time.Second
 
 	return cfg
 }
@@ -891,6 +905,8 @@ func redisEngineConfig() (*centrifuge.RedisEngineConfig, error) {
 	hostsConf := v.GetString("redis_host")
 	portsConf := v.GetString("redis_port")
 	urlsConf := v.GetString("redis_url")
+	redisTLS := v.GetBool("redis_tls")
+	redisTLSSkipVerify := v.GetBool("redis_tls_skip_verify")
 	masterNamesConf := v.GetString("redis_master_name")
 	sentinelsConf := v.GetString("redis_sentinels")
 
@@ -1046,6 +1062,8 @@ func redisEngineConfig() (*centrifuge.RedisEngineConfig, error) {
 			Port:             port,
 			Password:         passwords[i],
 			DB:               dbs[i],
+			UseTLS:           redisTLS,
+			TLSSkipVerify:    redisTLSSkipVerify,
 			MasterName:       masterNames[i],
 			SentinelAddrs:    sentinelAddrs,
 			Prefix:           v.GetString("redis_prefix"),
@@ -1129,6 +1147,8 @@ const (
 	HandlerDebug
 	// HandlerPrometheus enables Prometheus handler.
 	HandlerPrometheus
+	// HandlerHealth enables Health check endpoint.
+	HandlerHealth
 )
 
 var handlerText = map[HandlerFlag]string{
@@ -1138,10 +1158,11 @@ var handlerText = map[HandlerFlag]string{
 	HandlerAdmin:      "admin",
 	HandlerDebug:      "debug",
 	HandlerPrometheus: "prometheus",
+	HandlerHealth:     "health",
 }
 
 func (flags HandlerFlag) String() string {
-	flagsOrdered := []HandlerFlag{HandlerWebsocket, HandlerSockJS, HandlerAPI, HandlerAdmin, HandlerPrometheus, HandlerDebug}
+	flagsOrdered := []HandlerFlag{HandlerWebsocket, HandlerSockJS, HandlerAPI, HandlerAdmin, HandlerPrometheus, HandlerDebug, HandlerHealth}
 	endpoints := []string{}
 	for _, flag := range flagsOrdered {
 		text, ok := handlerText[flag]
@@ -1200,6 +1221,10 @@ func Mux(n *centrifuge.Node, flags HandlerFlag) *http.ServeMux {
 		mux.Handle("/", middleware.LogRequest(admin.NewHandler(n, adminHandlerConfig())))
 	} else {
 		mux.Handle("/", middleware.LogRequest(http.HandlerFunc(notFoundHandler)))
+	}
+
+	if flags&HandlerHealth != 0 {
+		mux.Handle("/health", middleware.LogRequest(health.NewHandler(n, health.Config{})))
 	}
 
 	return mux

@@ -25,7 +25,7 @@ There are also [packages for 64-bit Debian, Centos and Ubuntu](https://packagecl
 
 ### Demo
 
-Try our [demo instance](https://centrifugo2.herokuapp.com/) on Heroku (password `password`). Or deploy your own Centrifugo instance in one click:
+Try our [demo instance](https://centrifugo2.herokuapp.com/) on Heroku (admin password is `password`, secret is `secret`, API key is `api_key`). Or deploy your own Centrifugo instance in one click:
 
 [![Deploy](https://www.herokucdn.com/deploy/button.png)](https://heroku.com/deploy?template=https://github.com/centrifugal/centrifugo)
 
@@ -46,9 +46,3 @@ Try our [demo instance](https://centrifugo2.herokuapp.com/) on Heroku (password 
 * Built-in administrative web interface
 * Ready to deploy (Docker image, RPM/DEB packages, Nginx configuration, automatic Let's Encrypt TLS certificates)
 * MIT license
-
-### Support project
-
-If you like Centrifugo and want to thank Centrifugo author you can by him a coffee:
-
-<a href="https://www.buymeacoffee.com/FZambia" target="_blank"><img src="https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png" alt="Buy Me A Coffee" style="height: auto !important;width: auto !important;" ></a>

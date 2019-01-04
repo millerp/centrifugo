@@ -2,6 +2,14 @@
 
 
 [[projects]]
+  branch = "master"
+  digest = "1:ec388815e7c8b18a47865b15ba6dd8d40803820a0412d7592d9d9bd09baaa691"
+  name = "github.com/FZambia/eagle"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "e14cdafa019627b5b74689ab7173f6b6ed93a55b"
+
+[[projects]]
   digest = "1:8e379117c74df8f21127a82e1599de345efad7770fa91dd2ea20195471014fb4"
   name = "github.com/FZambia/sentinel"
   packages = ["."]
@@ -43,7 +51,7 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:07fbad91de7bdc84e47431faeb27c0c9de7f4708b92c4d3087ee903591fb6067"
+  digest = "1:6d8a7da634189cac6316278d79c7a8ddca0e26a2f8d02d2bec4f2240432ce7f4"
   name = "github.com/centrifugal/centrifuge"
   packages = [
     ".",
@@ -51,10 +59,11 @@
     "internal/proto",
     "internal/proto/controlproto",
     "internal/queue",
+    "internal/timers",
     "internal/uuid",
   ]
   pruneopts = "UT"
-  revision = "2dee25cc0ba7dd066846712312528d09997ff63e"
+  revision = "5015efcfd418ddb9e6907631ffecc5272f0f14e8"
 
 [[projects]]
   digest = "1:a2c1d0e43bd3baaa071d1b9ed72c27d78169b2b269f71c105ac4ba34b1be4a39"
@@ -121,12 +130,12 @@
   version = "v1.1.1"
 
 [[projects]]
-  digest = "1:43dd08a10854b2056e615d1b1d22ac94559d822e1f8b6fcc92c1a1057e85188e"
+  digest = "1:7b5c6e2eeaa9ae5907c391a91c132abfd5c9e8a784a341b5625e750c67e6825d"
   name = "github.com/gorilla/websocket"
   packages = ["."]
   pruneopts = "UT"
-  revision = "ea4d1f681babbce9545c9c5f3d5194a789c89f5b"
-  version = "v1.2.0"
+  revision = "66b9c49e59c6c48f0ffce28c2d8b8a5678502c6d"
+  version = "v1.4.0"
 
 [[projects]]
   branch = "master"
@@ -402,6 +411,7 @@
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
+    "github.com/FZambia/eagle",
     "github.com/FZambia/statik/fs",
     "github.com/FZambia/viper-lite",
     "github.com/ajstarks/svgo",
@@ -413,9 +423,6 @@
     "github.com/mattn/go-isatty",
     "github.com/prometheus/client_golang/prometheus",
     "github.com/prometheus/client_golang/prometheus/promhttp",
-    "github.com/prometheus/client_model/go",
-    "github.com/prometheus/common/expfmt",
-    "github.com/prometheus/common/model",
     "github.com/rs/zerolog",
     "github.com/rs/zerolog/log",
     "github.com/satori/go.uuid",

@@ -7,13 +7,20 @@
   "env": {
     "GO_LINKER_SYMBOL": "main.VERSION",
     "GO_LINKER_VALUE": "dev",
-    "CENTRIFUGO_ADMIN_PASSWORD": "password",
+    "CENTRIFUGO_ADMIN_PASSWORD": {
+      "description": "Admin password used to log into admin web panel",
+      "generator": "secret"
+    },
     "CENTRIFUGO_ADMIN_SECRET": {
       "description": "Admin secret used to generate admin access token",
       "generator": "secret"
     },
     "CENTRIFUGO_SECRET": {
-      "description": "Centrifugo secret to generate token signatures",
+      "description": "Centrifugo secret to generate JWT",
+      "generator": "secret"
+    },
+    "CENTRIFUGO_API_KEY": {
+      "description": "Centrifugo API key",
       "generator": "secret"
     },
     "CENTRIFUGO_PUBLISH": "0",
